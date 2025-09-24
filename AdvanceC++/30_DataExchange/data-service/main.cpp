@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cstring>
+#include <cstdint>
 
 #define PORT 8080
 
@@ -10,8 +11,8 @@ int main() {
     int server_fd, new_socket;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
-    char buffer[1024] = {0};
-    const char* hello = "Hello from Server";
+    int32_t payload[2] = {0};
+    int32_t sum = 0;
 
     // Creating socket file descriptor
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -44,13 +45,36 @@ int main() {
         return -1;
     }
 
-    // Read message from client
-    read(new_socket, buffer, 1024);
-    std::cout << "Server received: " << buffer << std::endl;
+    // Read two integers from client
+    ssize_t total_received = 0;
+    char* payload_bytes = reinterpret_cast<char*>(payload);
+    while (total_received < static_cast<ssize_t>(sizeof(payload))) {
+        ssize_t received = read(new_socket, payload_bytes + total_received, sizeof(payload) - total_received);
+        if (received <= 0) {
+            std::cerr << "Failed to read numbers from client!" << std::endl;
+            close(new_socket);
+            close(server_fd);
+            return -1;
+        }
+        total_received += received;
+    }
 
-    // Send response to the client
-    send(new_socket, hello, strlen(hello), 0);
-    std::cout << "Hello message sent from data-service" << std::endl;
+    int32_t first = ntohl(payload[0]);
+    int32_t second = ntohl(payload[1]);
+    sum = first + second;
+    std::cout << "Server received numbers: " << first << " and " << second << std::endl;
+
+    int32_t net_sum = htonl(sum);
+
+    // Send the result back to the client
+    ssize_t bytes_sent = send(new_socket, &net_sum, sizeof(net_sum), 0);
+    if (bytes_sent != sizeof(net_sum)) {
+        std::cerr << "Failed to send result to client!" << std::endl;
+        close(new_socket);
+        close(server_fd);
+        return -1;
+    }
+    std::cout << "Server sent sum: " << sum << std::endl;
 
     close(new_socket);
     close(server_fd);
